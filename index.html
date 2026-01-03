@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>KekkaiVR - Modular Base</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover, user-scalable=no">
+<style>
+  html, body { height: 100%; margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; user-select: none; }
+  canvas { display: block; width: 100%; height: 100%; }
+  
+  /* UIオーバーレイ */
+  #hud { position: fixed; top: 10px; left: 10px; pointer-events: none; z-index: 10; }
+  .hud-box { background: rgba(0, 30, 60, 0.6); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.4); margin-bottom: 5px; }
+  .bar-bg { width: 150px; height: 10px; background: #555; margin-top: 5px; }
+  .hp-val { width: 100%; height: 100%; background: #0f0; transition: width 0.2s; }
+  
+  #msgArea { position: fixed; top: 40%; width: 100%; text-align: center; pointer-events: none; font-size: 40px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+  
+  /* スマホ操作用（簡易版） */
+  #stickZone { position: fixed; bottom: 30px; left: 30px; width: 100px; height: 100px; background: rgba(255,255,255,0.2); border-radius: 50%; border: 2px solid #fff; pointer-events: auto; }
+  #btnAction { position: fixed; bottom: 50px; right: 30px; width: 80px; height: 80px; background: rgba(255,0,0,0.5); border-radius: 50%; border: 2px solid #fff; display:flex; align-items:center; justify-content:center; pointer-events: auto; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="hud">
+  <div class="hud-box">
+    <div>HP: <span id="hpText">100</span></div>
+    <div class="bar-bg"><div id="hpBar" class="hp-val"></div></div>
+  </div>
+</div>
+<div id="msgArea"></div>
+<div id="stickZone"></div>
+<div id="btnAction">結</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
