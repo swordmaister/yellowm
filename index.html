@@ -2,45 +2,199 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>KekkaiVR - Modular Base</title>
+<title>KekkaiVR - Simple & Clean</title>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover, user-scalable=no">
 <style>
   html, body { height: 100%; margin: 0; background: #000; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; user-select: none; }
   canvas { display: block; width: 100%; height: 100%; }
-  
-  /* UIオーバーレイ */
   #hud { position: fixed; top: 10px; left: 10px; pointer-events: none; z-index: 10; }
   .hud-box { background: rgba(0, 30, 60, 0.6); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.4); margin-bottom: 5px; }
   .bar-bg { width: 150px; height: 10px; background: #555; margin-top: 5px; }
   .hp-val { width: 100%; height: 100%; background: #0f0; transition: width 0.2s; }
-  
-  #msgArea { position: fixed; top: 40%; width: 100%; text-align: center; pointer-events: none; font-size: 40px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
-  
-  /* スマホ操作用（簡易版） */
   #stickZone { position: fixed; bottom: 30px; left: 30px; width: 100px; height: 100px; background: rgba(255,255,255,0.2); border-radius: 50%; border: 2px solid #fff; pointer-events: auto; }
-  #btnAction { position: fixed; bottom: 50px; right: 30px; width: 80px; height: 80px; background: rgba(255,0,0,0.5); border-radius: 50%; border: 2px solid #fff; display:flex; align-items:center; justify-content:center; pointer-events: auto; }
+  #btnAction { position: fixed; bottom: 50px; right: 30px; width: 80px; height: 80px; background: rgba(0, 200, 255, 0.5); border-radius: 50%; border: 2px solid #fff; display:flex; align-items:center; justify-content:center; pointer-events: auto; font-weight:bold; font-size:20px; }
 </style>
 <script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
-}
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js" } }
 </script>
 </head>
 <body>
-<div id="hud">
-  <div class="hud-box">
-    <div>HP: <span id="hpText">100</span></div>
-    <div class="bar-bg"><div id="hpBar" class="hp-val"></div></div>
-  </div>
-</div>
-<div id="msgArea"></div>
+<div id="hud"><div class="hud-box"><div>HP: <span id="hpText">100</span></div><div class="bar-bg"><div id="hpBar" class="hp-val"></div></div></div></div>
 <div id="stickZone"></div>
 <div id="btnAction">結</div>
 
-<script type="module" src="./main.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+
+// ==========================================
+// 1. CONFIG (設定)
+// ==========================================
+const CFG = {
+  colors: { sky: 0x87CEEB, ground: 0xC2B280, player: 0x00ff00, enemy: 0xff4444, kekkai: 0xffff00 },
+  player: { speed: 10.0, maxHp: 100 },
+  world: { gravity: -30 }
+};
+
+// ==========================================
+// 2. GLOBALS (変数)
+// ==========================================
+let scene, camera, renderer, world;
+let playerBody, playerMesh;
+let enemies = [], kekkaiList = [];
+let input = { x: 0, y: 0 };
+let playerHp = CFG.player.maxHp;
+
+// ==========================================
+// 3. UI & INPUT (操作)
+// ==========================================
+function setupUI() {
+  const stickZone = document.getElementById('stickZone');
+  let stickId = null, startX = 0, startY = 0;
+  
+  stickZone.addEventListener('touchstart', e => {
+    e.preventDefault(); if(stickId !== null) return;
+    const t = e.changedTouches[0]; stickId = t.identifier;
+    const rect = stickZone.getBoundingClientRect();
+    startX = rect.left + rect.width/2; startY = rect.top + rect.height/2;
+  }, {passive:false});
+
+  stickZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for(let i=0; i<e.changedTouches.length; i++){
+      if(e.changedTouches[i].identifier === stickId){
+        const t = e.changedTouches[i];
+        let dx = t.clientX - startX, dy = t.clientY - startY;
+        const dist = Math.hypot(dx, dy), max = 40;
+        if(dist>max){ dx *= max/dist; dy *= max/dist; }
+        input.x = dx/max; input.y = dy/max;
+      }
+    }
+  }, {passive:false});
+
+  const endStick = e => {
+    for(let i=0; i<e.changedTouches.length; i++) if(e.changedTouches[i].identifier===stickId){ stickId=null; input.x=0; input.y=0; }
+  };
+  stickZone.addEventListener('touchend', endStick);
+
+  // 「結」ボタン
+  document.getElementById('btnAction').addEventListener('touchstart', e => {
+    e.preventDefault();
+    createKekkai(); // 結界発射！
+  });
+}
+
+function updateHUD() {
+  document.getElementById('hpText').textContent = Math.floor(playerHp);
+  document.getElementById('hpBar').style.width = (playerHp/CFG.player.maxHp*100) + "%";
+}
+
+// ==========================================
+// 4. LOGIC (結界・敵)
+// ==========================================
+function createKekkai() {
+  const size = 1.5;
+  // プレイヤーの向いている方向の少し先に置く
+  const pos = playerBody.position.clone();
+  const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  pos.vadd(new CANNON.Vec3(dir.x*5, dir.y*5, dir.z*5), pos);
+
+  // 物理
+  const b = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(size/2, size/2, size/2)) });
+  b.position.copy(pos); world.addBody(b);
+
+  // 見た目
+  const g = new THREE.BoxGeometry(size, size, size);
+  const m = new THREE.MeshBasicMaterial({ color: CFG.colors.kekkai, transparent: true, opacity: 0.5 });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({color:0xffffff})));
+  mesh.position.copy(pos); scene.add(mesh);
+  
+  kekkaiList.push({ body: b, mesh: mesh });
+  
+  // 5秒後に消える
+  setTimeout(() => {
+    if(b) world.removeBody(b);
+    if(mesh) scene.remove(mesh);
+  }, 5000);
+}
+
+function spawnEnemy() {
+  const x = (Math.random()-0.5)*20;
+  const b = new CANNON.Body({ mass: 5, shape: new CANNON.Sphere(0.8), position: new CANNON.Vec3(x, 20, -20) });
+  world.addBody(b);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.8), new THREE.MeshStandardMaterial({ color: CFG.colors.enemy }));
+  scene.add(m);
+  enemies.push({ body: b, mesh: m });
+}
+
+function updateEnemies() {
+  enemies.forEach(e => {
+    e.mesh.position.copy(e.body.position);
+    e.mesh.quaternion.copy(e.body.quaternion);
+    
+    // プレイヤーを追いかける
+    const dir = playerBody.position.vsub(e.body.position); dir.normalize();
+    e.body.applyForce(dir.scale(15), e.body.position);
+
+    if(e.body.position.y < -10) { // 落ちたらリセット
+      e.body.position.set((Math.random()-0.5)*20, 20, -20);
+      e.body.velocity.set(0,0,0);
+    }
+  });
+}
+
+// ==========================================
+// 5. MAIN (初期化・ループ)
+// ==========================================
+function init() {
+  scene = new THREE.Scene(); scene.background = new THREE.Color(CFG.colors.sky);
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  world = new CANNON.World(); world.gravity.set(0, CFG.world.gravity, 0);
+
+  // 地面
+  const gMat = new THREE.MeshStandardMaterial({ color: CFG.colors.ground });
+  const gMesh = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), gMat);
+  gMesh.rotation.x = -Math.PI/2; gMesh.receiveShadow = true; scene.add(gMesh);
+  const gBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+  gBody.quaternion.setFromEuler(-Math.PI/2, 0, 0); world.addBody(gBody);
+  
+  // ライト
+  const sun = new THREE.DirectionalLight(0xffffff, 1); sun.position.set(50,100,50); sun.castShadow=true; scene.add(sun);
+  scene.add(new THREE.AmbientLight(0x555555));
+
+  // プレイヤー
+  playerBody = new CANNON.Body({ mass: 60, shape: new CANNON.Sphere(1), position: new CANNON.Vec3(0, 5, 0), fixedRotation: true });
+  world.addBody(playerBody);
+  
+  setupUI();
+  spawnEnemy(); spawnEnemy();
+
+  loop();
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  world.step(1/60);
+
+  // プレイヤー移動
+  playerBody.velocity.x = input.x * CFG.player.speed;
+  playerBody.velocity.z = input.y * CFG.player.speed;
+
+  updateEnemies();
+  updateHUD();
+
+  camera.position.copy(playerBody.position).add(new THREE.Vector3(0, 5, 10));
+  camera.lookAt(playerBody.position);
+  renderer.render(scene, camera);
+}
+
+init();
+</script>
 </body>
 </html>
